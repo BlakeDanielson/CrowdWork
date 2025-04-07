@@ -1,19 +1,19 @@
 import React from 'react';
+import '../styles/ProgressBar.css';
 
-function ProgressBar({ progress }) {
+const ProgressBar = ({ progress }) => {
   return (
-    <div>
-      <div className="progress-bar">
-        <div 
-          className="progress-bar-fill" 
-          style={{ width: `${progress}%` }}
-        ></div>
-      </div>
-      <div style={{ textAlign: 'center' }}>
-        {progress}% Complete
-      </div>
+    <div className="progress-bar-container">
+      <div 
+        className="progress-bar-fill" 
+        style={{ width: `${progress}%` }}
+        role="progressbar"
+        aria-valuenow={progress}
+        aria-valuemin="0"
+        aria-valuemax="100"
+      ></div>
     </div>
   );
-}
+};
 
 export default ProgressBar; 

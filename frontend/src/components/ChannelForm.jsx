@@ -1,83 +1,157 @@
 import React, { useState } from 'react';
+import '../styles/ChannelForm.css';
 
-function ChannelForm({ onSubmit }) {
+const ChannelForm = ({ onAnalysisStart, onProgress, onAnalysisComplete, onError }) => {
   const [channelUrl, setChannelUrl] = useState('');
+  const [maxVideos, setMaxVideos] = useState(5);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [inputError, setInputError] = useState('');
-
+  const [validationError, setValidationError] = useState('');
+  
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  
+  const validateChannelUrl = (url) => {
+    // Basic validation for YouTube channel URL
+    const youtubeChannelPattern = /youtube\.com\/(channel|c|user|@)/;
+    return youtubeChannelPattern.test(url);
+  };
+  
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setValidationError('');
     
-    // Basic validation
     if (!channelUrl.trim()) {
-      setInputError('Please enter a YouTube channel URL or handle');
+      setValidationError('Please enter a YouTube channel URL');
       return;
     }
     
-    // Check if it's a YouTube URL or handle
-    if (!isValidYouTubeInput(channelUrl)) {
-      setInputError('Please enter a valid YouTube channel URL or handle (e.g., https://www.youtube.com/c/ChannelName or @ChannelHandle)');
+    if (!validateChannelUrl(channelUrl)) {
+      setValidationError('Please enter a valid YouTube channel URL');
       return;
     }
-    
-    setInputError('');
-    setIsSubmitting(true);
     
     try {
-      await onSubmit(channelUrl);
+      setIsSubmitting(true);
+      onAnalysisStart();
+      
+      // Submit request to API
+      const response = await fetch(`${API_URL}/analyze-channel/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          channel_url: channelUrl,
+          max_videos: maxVideos
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to start analysis');
+      }
+      
+      const data = await response.json();
+      const taskId = data.task_id;
+      
+      // Poll for results
+      await pollForResults(taskId);
+      
     } catch (error) {
       console.error('Error submitting form:', error);
-    } finally {
+      onError(error.message);
       setIsSubmitting(false);
     }
   };
-
-  const isValidYouTubeInput = (input) => {
-    // This is a basic validation - the backend will handle more complex parsing
-    const youtubeUrlPattern = /youtube\.com|youtu\.be/i;
-    const handlePattern = /^@[\w.-]+$/;
+  
+  const pollForResults = async (taskId) => {
+    const pollInterval = 2000; // Poll every 2 seconds
+    let timeoutId;
     
-    return (
-      youtubeUrlPattern.test(input) || // URL containing youtube.com or youtu.be
-      handlePattern.test(input) || // @handle format
-      input.startsWith('UC') // Channel ID format starting with UC
-    );
+    const checkStatus = async () => {
+      try {
+        const response = await fetch(`${API_URL}/status/${taskId}`);
+        
+        if (!response.ok) {
+          throw new Error('Failed to get analysis status');
+        }
+        
+        const data = await response.json();
+        
+        // Update progress
+        onProgress(data.progress);
+        
+        if (data.status === 'completed') {
+          setIsSubmitting(false);
+          onAnalysisComplete(data.result);
+          return;
+        } else if (data.status === 'failed') {
+          throw new Error(data.result?.error || 'Analysis failed');
+        }
+        
+        // Continue polling
+        timeoutId = setTimeout(checkStatus, pollInterval);
+      } catch (error) {
+        console.error('Error polling for results:', error);
+        onError(error.message);
+        setIsSubmitting(false);
+        clearTimeout(timeoutId);
+      }
+    };
+    
+    // Start polling
+    await checkStatus();
   };
-
+  
   return (
-    <form onSubmit={handleSubmit}>
-      <h2>Enter YouTube Channel</h2>
-      <p>
-        Input a YouTube channel URL, handle, or ID to analyze their stand-up comedy videos.
-      </p>
-      
-      <div>
-        <label htmlFor="channelUrl">YouTube Channel URL or Handle:</label>
-        <input
-          type="text"
-          id="channelUrl"
-          value={channelUrl}
-          onChange={(e) => setChannelUrl(e.target.value)}
-          placeholder="https://www.youtube.com/c/ChannelName or @ChannelHandle"
+    <div className="channel-form-container">
+      <h2>Analyze Comedy Stand-up Videos</h2>
+      <form onSubmit={handleSubmit} className="channel-form">
+        <div className="form-group">
+          <label htmlFor="channelUrl">YouTube Channel URL</label>
+          <input
+            type="text"
+            id="channelUrl"
+            placeholder="https://www.youtube.com/channel/..."
+            value={channelUrl}
+            onChange={(e) => setChannelUrl(e.target.value)}
+            disabled={isSubmitting}
+            className={validationError ? 'error' : ''}
+          />
+          {validationError && <p className="error-message">{validationError}</p>}
+        </div>
+        
+        <div className="form-group">
+          <label htmlFor="maxVideos">Maximum Videos to Analyze</label>
+          <select
+            id="maxVideos"
+            value={maxVideos}
+            onChange={(e) => setMaxVideos(Number(e.target.value))}
+            disabled={isSubmitting}
+          >
+            <option value="1">1 video</option>
+            <option value="3">3 videos</option>
+            <option value="5">5 videos</option>
+            <option value="10">10 videos</option>
+            <option value="20">20 videos (may take longer)</option>
+          </select>
+        </div>
+        
+        <button 
+          type="submit" 
+          className="submit-button" 
           disabled={isSubmitting}
-        />
-        {inputError && <p className="error">{inputError}</p>}
-      </div>
+        >
+          {isSubmitting ? 'Analyzing...' : 'Analyze Channel'}
+        </button>
+      </form>
       
-      <button type="submit" disabled={isSubmitting}>
-        {isSubmitting ? 'Submitting...' : 'Analyze Channel'}
-      </button>
-      
-      <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
-        <p>Examples:</p>
-        <ul style={{ marginLeft: '1.5rem' }}>
-          <li>https://www.youtube.com/c/ComedianName</li>
-          <li>https://www.youtube.com/channel/UC1234567890abcdefghij</li>
-          <li>@ComedianHandle</li>
-        </ul>
-      </div>
-    </form>
+      {isSubmitting && (
+        <p className="info-message">
+          Analysis in progress. This may take a few minutes depending on the number of videos.
+        </p>
+      )}
+    </div>
   );
-}
+};
 
 export default ChannelForm; 
